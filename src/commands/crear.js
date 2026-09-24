@@ -1,6 +1,6 @@
 import {
-  SlashCommandBuilder, ChannelType, ModalBuilder, TextInputBuilder,
-  TextInputStyle, ActionRowBuilder, EmbedBuilder, ThreadAutoArchiveDuration, MessageFlags,
+  SlashCommandBuilder, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle,
+  ActionRowBuilder, EmbedBuilder, ThreadAutoArchiveDuration, MessageFlags, ButtonBuilder, ButtonStyle,
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
 import { db } from '../db.js';
@@ -46,6 +46,10 @@ export async function execute(interaction) {
     new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('sinopsis').setLabel('Sinopsis (opcional)')
         .setStyle(TextInputStyle.Paragraph).setMaxLength(3500).setRequired(false)),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('drive').setLabel('Link del Drive de raws (opcional)')
+        .setPlaceholder('https://drive.google.com/...')
+        .setStyle(TextInputStyle.Short).setMaxLength(500).setRequired(false)),
   ));
 
   let form;
@@ -57,7 +61,12 @@ export async function execute(interaction) {
 
   const nombre = form.fields.getTextInputValue('nombre').trim();
   const sinopsis = form.fields.getTextInputValue('sinopsis')?.trim() || null; // opcional
+  const drive = form.fields.getTextInputValue('drive')?.trim() || null;       // opcional
   await form.deferReply({ flags: MessageFlags.Ephemeral });
+
+  if (drive && !/^https:\/\/\S+$/i.test(drive)) {
+    return form.editReply('❌ El link del Drive no es válido (debe empezar con `https://`). No se creó nada, vuelve a intentarlo.');
+  }
 
   // --- Validaciones con los datos del formulario ---
   const nombreSeguro = nombre.replace(/[%_\\]/g, '\\$&');
@@ -128,6 +137,7 @@ export async function execute(interaction) {
       canal_id: canal.id,
       hilo_id: hilo.id,
       categoria_id: categoria.id,
+      drive_link: drive,
       creado_por: interaction.user.id,
     });
     if (errInsert) throw errInsert;
@@ -137,7 +147,14 @@ export async function execute(interaction) {
       .addFields({ name: 'Tipo', value: tipo, inline: true }, { name: 'Clasificación', value: clasificacion, inline: true });
     if (sinopsis) embedFicha.setDescription(sinopsis);
     if (portadaUrl) embedFicha.setImage(portadaUrl);
-    const ficha = await canal.send({ embeds: [embedFicha] });
+    if (drive) embedFicha.addFields({ name: '📂 Raws', value: drive });
+
+    const ficha = await canal.send({
+      embeds: [embedFicha],
+      components: drive ? [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Abrir Drive de raws').setEmoji('📂').setURL(drive),
+      )] : [],
+    });
     await ficha.pin().catch(() => {});
 
     // 6. Anuncio de nuevo proyecto
@@ -155,7 +172,7 @@ export async function execute(interaction) {
       allowedMentions: { roles: [process.env.ROL_MIEMBROS_ID] },
     });
 
-    const faltantes = [!portadaUrl && 'portada', !sinopsis && 'sinopsis'].filter(Boolean);
+    const faltantes = [!portadaUrl && 'portada', !sinopsis && 'sinopsis', !drive && 'link de raws'].filter(Boolean);
     await form.editReply(
       `✅ Serie **${nombre}** creada y guardada\n• Rol: ${rol}\n• Canal: ${canal}\n• Hilo: ${hilo}\n• Anuncio publicado en ${canalProyectos}`
       + (faltantes.length ? `\nℹ️ Se creó sin ${faltantes.join(' ni ')}.` : ''),
