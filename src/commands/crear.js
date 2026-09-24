@@ -1,5 +1,5 @@
 import {
-  SlashCommandBuilder, PermissionFlagsBits, ChannelType, ModalBuilder, TextInputBuilder,
+  SlashCommandBuilder, ChannelType, ModalBuilder, TextInputBuilder,
   TextInputStyle, ActionRowBuilder, EmbedBuilder, ThreadAutoArchiveDuration, MessageFlags,
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
@@ -7,6 +7,9 @@ import { db } from '../db.js';
 
 const TIPOS = ['Manhwa', 'Manga', 'Manhua', 'Doujinshi', 'Novela'];
 const BUCKET = 'imagenes';
+
+// Quién puede usarlo: 'admin' o 'miembro'
+export const permiso = 'admin';
 
 export const data = new SlashCommandBuilder()
   .setName('crear')
@@ -17,8 +20,7 @@ export const data = new SlashCommandBuilder()
     .addChoices({ name: '+15', value: '+15' }, { name: '+18', value: '+18' }))
   .addChannelOption((o) => o.setName('categoria').setDescription('Categoría donde irá el canal de la serie')
     .setRequired(true).addChannelTypes(ChannelType.GuildCategory))
-  .addAttachmentOption((o) => o.setName('portada').setDescription('(Opcional) Imagen de portada').setRequired(false))
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels);
+  .addAttachmentOption((o) => o.setName('portada').setDescription('(Opcional) Imagen de portada').setRequired(false));
 
 export async function execute(interaction) {
   const tipo = interaction.options.getString('tipo', true);

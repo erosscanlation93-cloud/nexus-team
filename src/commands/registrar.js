@@ -10,8 +10,12 @@ import { parsearCapitulos, formatearCapitulos } from '../utils/capitulos.js';
 const ROLES = [
   { value: 'TL', label: 'TL', description: 'Traducción' },
   { value: 'CL', label: 'CL', description: 'Limpieza' },
+  { value: 'RD', label: 'RD', description: 'Redibujo' },
   { value: 'TP', label: 'TP', description: 'Typeo / edición final' },
 ];
+
+// Quién puede usarlo: 'admin' o 'miembro'
+export const permiso = 'miembro';
 
 export const data = new SlashCommandBuilder()
   .setName('registrar')

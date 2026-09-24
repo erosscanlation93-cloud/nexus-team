@@ -1,5 +1,5 @@
 import {
-  SlashCommandBuilder, PermissionFlagsBits, MessageFlags, EmbedBuilder, ActionRowBuilder,
+  SlashCommandBuilder, MessageFlags, EmbedBuilder, ActionRowBuilder,
   StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ComponentType,
 } from 'discord.js';
 import { db } from '../db.js';
@@ -7,14 +7,14 @@ import { serieDelCanal } from '../utils/series.js';
 import { formatearCapitulos } from '../utils/capitulos.js';
 import { webhookPara, enviarAnuncio } from '../utils/anuncios.js';
 
+// Quién puede usarlo: 'admin' o 'miembro'
+export const permiso = 'admin';
+
 export const data = new SlashCommandBuilder()
   .setName('publicar')
   .setDescription('Anuncia capítulos listos (con TP) en el Discord de la comunidad')
   .addStringOption((o) => o.setName('acceso').setDescription('Canal de anuncio (por defecto: gratis)')
-    .addChoices({ name: 'Gratis', value: 'gratis' }, { name: 'Premium', value: 'premium' }))
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels);
-
-// Imagen del hilo que mejor cubre los capítulos elegidos (la más reciente gana)
+    .addChoices({ name: 'Gratis', value: 'gratis' }, { name: 'Premium', value: 'premium' }));
 function elegirImagen(imagenes, caps) {
   const min = Math.min(...caps);
   const max = Math.max(...caps);

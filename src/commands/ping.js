@@ -1,5 +1,8 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 
+// Quién puede usarlo: 'admin' o 'miembro'
+export const permiso = 'admin';
+
 export const data = new SlashCommandBuilder()
   .setName('ping')
   .setDescription('Comprueba que el bot responde');

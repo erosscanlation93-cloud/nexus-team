@@ -3,6 +3,7 @@ import { Client, GatewayIntentBits, Events, MessageFlags, Partials } from 'disco
 import { loadCommands } from './utils/loadCommands.js';
 import { db } from './db.js';
 import { registrarHiloAnuncios } from './events/hiloAnuncios.js';
+import { tienePermiso } from './utils/permisos.js';
 
 const client = new Client({
   intents: [
@@ -45,6 +46,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   const command = client.commands.get(interaction.commandName);
   if (!command) return;
+
+  // Control de acceso por rol (si un comando no lo indica, es solo para admin)
+  if (!tienePermiso(interaction, command.permiso ?? 'admin')) {
+    const quien = (command.permiso ?? 'admin') === 'admin' ? 'el rol Admin' : 'el rol de miembros del scan';
+    return interaction.reply({ content: `⛔ Este comando solo lo puede usar ${quien}.`, flags: MessageFlags.Ephemeral });
+  }
 
   try {
     await command.execute(interaction);

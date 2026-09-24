@@ -1,14 +1,16 @@
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { db } from '../db.js';
 import { serieDelCanal } from '../utils/series.js';
 
 const DOMINIO = process.env.WEB_DOMINIO || 'nexusscanlation.com';
 
+// Quién puede usarlo: 'admin' o 'miembro'
+export const permiso = 'admin';
+
 export const data = new SlashCommandBuilder()
   .setName('link')
   .setDescription('Muestra o cambia el link de la serie en la web (usar en el canal de la serie)')
-  .addStringOption((o) => o.setName('url').setDescription(`Link de la serie en ${DOMINIO}`).setRequired(false))
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels);
+  .addStringOption((o) => o.setName('url').setDescription(`Link de la serie en ${DOMINIO}`).setRequired(false));
 
 export async function execute(interaction) {
   const serie = await serieDelCanal(interaction.channel);
