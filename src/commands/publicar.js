@@ -68,7 +68,8 @@ export async function execute(interaction) {
     .addOptions(visibles.map((c) => new StringSelectMenuOptionBuilder()
       .setValue(String(c))
       .setLabel(`Capítulo ${c}`)
-      .setDescription(elegirImagen(imagenes, [c]) ? '🖼️ Con imagen' : '⚠️ Sin imagen, se usará la portada')));
+      .setDescription(elegirImagen(imagenes, [c]) ? '🖼️ Con imagen'
+        : serie.portada_url ? '⚠️ Sin imagen, se usará la portada' : '⚠️ Sin imagen ni portada')));
 
   const extra = pendientes.length > 25 ? `\n(Se muestran los 25 primeros de ${pendientes.length} pendientes)` : '';
   const respuesta = await interaction.editReply({
@@ -123,7 +124,7 @@ export async function execute(interaction) {
   });
 
   await interaction.editReply({
-    content: `✅ Anunciado: **${serie.nombre}** · ${textoCaps}${imagen ? '' : '\n⚠️ Se usó la portada porque no había imagen en el hilo.'}`,
+    content: `✅ Anunciado: **${serie.nombre}** · ${textoCaps}${imagen ? '' : serie.portada_url ? '\n⚠️ Se usó la portada porque no había imagen en el hilo.' : '\n⚠️ Salió sin imagen: no había en el hilo y la serie no tiene portada.'}`,
     components: [],
   });
 }

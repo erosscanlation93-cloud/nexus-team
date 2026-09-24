@@ -17,18 +17,18 @@ export const data = new SlashCommandBuilder()
     .addChoices({ name: '+15', value: '+15' }, { name: '+18', value: '+18' }))
   .addChannelOption((o) => o.setName('categoria').setDescription('Categoría donde irá el canal de la serie')
     .setRequired(true).addChannelTypes(ChannelType.GuildCategory))
-  .addAttachmentOption((o) => o.setName('portada').setDescription('Imagen de portada').setRequired(true))
+  .addAttachmentOption((o) => o.setName('portada').setDescription('(Opcional) Imagen de portada').setRequired(false))
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels);
 
 export async function execute(interaction) {
   const tipo = interaction.options.getString('tipo', true);
   const clasificacion = interaction.options.getString('clasificacion', true);
   const categoria = interaction.options.getChannel('categoria', true);
-  const portada = interaction.options.getAttachment('portada', true);
+  const portada = interaction.options.getAttachment('portada'); // opcional
   const guild = interaction.guild;
 
   // --- Validaciones rápidas antes de abrir el formulario ---
-  if (!portada.contentType?.startsWith('image/')) {
+  if (portada && !portada.contentType?.startsWith('image/')) {
     return interaction.reply({ content: '❌ La portada debe ser una imagen (png, jpg o webp).', flags: MessageFlags.Ephemeral });
   }
   if (guild.channels.cache.filter((c) => c.parentId === categoria.id).size >= 50) {
@@ -42,8 +42,8 @@ export async function execute(interaction) {
       new TextInputBuilder().setCustomId('nombre').setLabel('Nombre de la serie')
         .setStyle(TextInputStyle.Short).setMaxLength(90).setRequired(true)),
     new ActionRowBuilder().addComponents(
-      new TextInputBuilder().setCustomId('sinopsis').setLabel('Sinopsis')
-        .setStyle(TextInputStyle.Paragraph).setMaxLength(3500).setRequired(true)),
+      new TextInputBuilder().setCustomId('sinopsis').setLabel('Sinopsis (opcional)')
+        .setStyle(TextInputStyle.Paragraph).setMaxLength(3500).setRequired(false)),
   ));
 
   let form;
@@ -54,7 +54,7 @@ export async function execute(interaction) {
   }
 
   const nombre = form.fields.getTextInputValue('nombre').trim();
-  const sinopsis = form.fields.getTextInputValue('sinopsis').trim();
+  const sinopsis = form.fields.getTextInputValue('sinopsis')?.trim() || null; // opcional
   await form.deferReply({ flags: MessageFlags.Ephemeral });
 
   // --- Validaciones con los datos del formulario ---
@@ -73,22 +73,25 @@ export async function execute(interaction) {
 
   // --- Proceso de creación (si algo falla, se deshace todo) ---
   const serieId = randomUUID();
-  const ext = (portada.name.split('.').pop() || 'png').toLowerCase();
-  const rutaPortada = `portadas/${serieId}.${ext}`;
+  const ext = portada ? (portada.name.split('.').pop() || 'png').toLowerCase() : null;
+  const rutaPortada = portada ? `portadas/${serieId}.${ext}` : null;
   let portadaSubida = false;
   const creados = [];
 
   try {
-    // 1. Portada → Supabase Storage (los links de Discord caducan)
-    const res = await fetch(portada.url);
-    if (!res.ok) throw new Error(`No se pudo descargar la portada (${res.status})`);
-    const buffer = Buffer.from(await res.arrayBuffer());
+    // 1. Portada → Supabase Storage (solo si se adjuntó; los links de Discord caducan)
+    let portadaUrl = null;
+    if (portada) {
+      const res = await fetch(portada.url);
+      if (!res.ok) throw new Error(`No se pudo descargar la portada (${res.status})`);
+      const buffer = Buffer.from(await res.arrayBuffer());
 
-    const { error: errSubida } = await db.storage.from(BUCKET)
-      .upload(rutaPortada, buffer, { contentType: portada.contentType, upsert: true });
-    if (errSubida) throw errSubida;
-    portadaSubida = true;
-    const portadaUrl = db.storage.from(BUCKET).getPublicUrl(rutaPortada).data.publicUrl;
+      const { error: errSubida } = await db.storage.from(BUCKET)
+        .upload(rutaPortada, buffer, { contentType: portada.contentType, upsert: true });
+      if (errSubida) throw errSubida;
+      portadaSubida = true;
+      portadaUrl = db.storage.from(BUCKET).getPublicUrl(rutaPortada).data.publicUrl;
+    }
 
     // 2. Rol y canal
     const rol = await guild.roles.create({ name: nombre, reason: `Serie creada por ${interaction.user.tag}` });
@@ -128,28 +131,32 @@ export async function execute(interaction) {
     if (errInsert) throw errInsert;
 
     // 5. Ficha fijada en el canal de la serie
-    const ficha = await canal.send({
-      embeds: [new EmbedBuilder().setColor(0x9b5cff).setTitle(nombre).setDescription(sinopsis)
-        .addFields({ name: 'Tipo', value: tipo, inline: true }, { name: 'Clasificación', value: clasificacion, inline: true })
-        .setImage(portadaUrl)],
-    });
+    const embedFicha = new EmbedBuilder().setColor(0x9b5cff).setTitle(nombre)
+      .addFields({ name: 'Tipo', value: tipo, inline: true }, { name: 'Clasificación', value: clasificacion, inline: true });
+    if (sinopsis) embedFicha.setDescription(sinopsis);
+    if (portadaUrl) embedFicha.setImage(portadaUrl);
+    const ficha = await canal.send({ embeds: [embedFicha] });
     await ficha.pin().catch(() => {});
 
     // 6. Anuncio de nuevo proyecto
+    const embedAnuncio = new EmbedBuilder()
+      .setColor(0x9b5cff)
+      .setTitle('📢 ¡NUEVO PROYECTO PARA EL SCAN!')
+      .setDescription(sinopsis ? `## ${nombre}\n\n${sinopsis}` : `## ${nombre}`)
+      .addFields({ name: 'Tipo', value: tipo, inline: true }, { name: 'Clasificación', value: clasificacion, inline: true })
+      .setTimestamp();
+    if (portadaUrl) embedAnuncio.setImage(portadaUrl);
+
     await canalProyectos.send({
       content: `<@&${process.env.ROL_MIEMBROS_ID}>`,
-      embeds: [new EmbedBuilder()
-        .setColor(0x9b5cff)
-        .setTitle('📢 ¡NUEVO PROYECTO PARA EL SCAN!')
-        .setDescription(`## ${nombre}\n\n${sinopsis}`)
-        .addFields({ name: 'Tipo', value: tipo, inline: true }, { name: 'Clasificación', value: clasificacion, inline: true })
-        .setImage(portadaUrl)
-        .setTimestamp()],
+      embeds: [embedAnuncio],
       allowedMentions: { roles: [process.env.ROL_MIEMBROS_ID] },
     });
 
+    const faltantes = [!portadaUrl && 'portada', !sinopsis && 'sinopsis'].filter(Boolean);
     await form.editReply(
-      `✅ Serie **${nombre}** creada y guardada\n• Rol: ${rol}\n• Canal: ${canal}\n• Hilo: ${hilo}\n• Anuncio publicado en ${canalProyectos}`,
+      `✅ Serie **${nombre}** creada y guardada\n• Rol: ${rol}\n• Canal: ${canal}\n• Hilo: ${hilo}\n• Anuncio publicado en ${canalProyectos}`
+      + (faltantes.length ? `\nℹ️ Se creó sin ${faltantes.join(' ni ')}.` : ''),
     );
   } catch (err) {
     console.error('❌ Error en /crear, deshaciendo cambios:', err);

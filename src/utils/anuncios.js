@@ -46,8 +46,8 @@ export async function enviarAnuncio({ webhookUrl, serie, textoCaps, plural, acce
       withComponents: true,
       allowedMentions,
       components: [
-        new TextDisplayBuilder().setContent(`## [${titulo}](${serie.link})\n${cuerpo}\n\n${menciones}`),
-        new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(imagenUrl)),
+        new TextDisplayBuilder().setContent(`# [${titulo}](${serie.link})\n${cuerpo}\n\n${menciones}`),
+        ...(imagenUrl ? [new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(imagenUrl))] : []),
         boton,
       ],
     });
@@ -58,7 +58,7 @@ export async function enviarAnuncio({ webhookUrl, serie, textoCaps, plural, acce
       content: menciones,
       allowedMentions,
       withComponents: true,
-      embeds: [new EmbedBuilder().setTitle(titulo).setURL(serie.link).setDescription(cuerpo).setImage(imagenUrl)],
+      embeds: [new EmbedBuilder().setTitle(titulo).setURL(serie.link).setDescription(cuerpo).setImage(imagenUrl ?? null)],
       components: [boton],
     });
   } finally {
