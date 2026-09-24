@@ -1,7 +1,8 @@
 import 'dotenv/config';
-import { Client, GatewayIntentBits, Events, MessageFlags } from 'discord.js';
+import { Client, GatewayIntentBits, Events, MessageFlags, Partials } from 'discord.js';
 import { loadCommands } from './utils/loadCommands.js';
 import { db } from './db.js';
+import { registrarHiloAnuncios } from './events/hiloAnuncios.js';
 
 const client = new Client({
   intents: [
@@ -10,9 +11,12 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
   ],
+  // Permite detectar mensajes borrados aunque sean antiguos (no estén en caché)
+  partials: [Partials.Message, Partials.Channel],
 });
 
 client.commands = await loadCommands();
+registrarHiloAnuncios(client);
 
 client.once(Events.ClientReady, async (c) => {
   console.log(`✅ Conectado como ${c.user.tag}`);
@@ -23,7 +27,7 @@ client.once(Events.ClientReady, async (c) => {
   console.log(`🧩 Comandos cargados: ${[...client.commands.keys()].join(', ') || 'ninguno'}`);
 
   // Prueba de conexión con Supabase
-    const { count, error, status } = await db.from('series').select('id', { count: 'exact' }).limit(1);
+  const { count, error, status } = await db.from('series').select('id', { count: 'exact' }).limit(1);
   console.log(error
     ? `⚠️ Supabase (${status}): ${error.message || error.code || JSON.stringify(error)}`
     : `🗄️ Supabase conectado · ${count} serie(s) en la base`);
