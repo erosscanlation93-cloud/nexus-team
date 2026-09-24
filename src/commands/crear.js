@@ -1,9 +1,10 @@
 import {
   SlashCommandBuilder, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle,
-  ActionRowBuilder, EmbedBuilder, ThreadAutoArchiveDuration, MessageFlags, ButtonBuilder, ButtonStyle,
+  ActionRowBuilder, EmbedBuilder, ThreadAutoArchiveDuration, MessageFlags,
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
 import { db } from '../db.js';
+import { construirFicha } from '../utils/ficha.js';
 
 const TIPOS = ['Manhwa', 'Manga', 'Manhua', 'Doujinshi', 'Novela'];
 const BUCKET = 'imagenes';
@@ -143,18 +144,9 @@ export async function execute(interaction) {
     if (errInsert) throw errInsert;
 
     // 5. Ficha fijada en el canal de la serie
-    const embedFicha = new EmbedBuilder().setColor(0x9b5cff).setTitle(nombre)
-      .addFields({ name: 'Tipo', value: tipo, inline: true }, { name: 'Clasificación', value: clasificacion, inline: true });
-    if (sinopsis) embedFicha.setDescription(sinopsis);
-    if (portadaUrl) embedFicha.setImage(portadaUrl);
-    if (drive) embedFicha.addFields({ name: '📂 Raws', value: drive });
-
-    const ficha = await canal.send({
-      embeds: [embedFicha],
-      components: drive ? [new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Abrir Drive de raws').setEmoji('📂').setURL(drive),
-      )] : [],
-    });
+    const ficha = await canal.send(construirFicha({
+      nombre, sinopsis, tipo, clasificacion, drive_link: drive, portada_url: portadaUrl,
+    }));
     await ficha.pin().catch(() => {});
 
     // 6. Anuncio de nuevo proyecto
