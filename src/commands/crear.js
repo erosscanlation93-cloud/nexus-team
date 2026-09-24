@@ -1,5 +1,5 @@
 import {
-  SlashCommandBuilder, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle,
+  SlashCommandBuilder, ChannelType, PermissionFlagsBits, ModalBuilder, TextInputBuilder, TextInputStyle,
   ActionRowBuilder, EmbedBuilder, ThreadAutoArchiveDuration, MessageFlags,
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
@@ -109,11 +109,30 @@ export async function execute(interaction) {
     const rol = await guild.roles.create({ name: nombre, reason: `Serie creada por ${interaction.user.tag}` });
     creados.push(rol);
 
+    // Canal privado: solo lo ven el rol de la serie, los admins y el bot. Con restricción de edad.
+    const P = PermissionFlagsBits;
+    const permisosEquipo = [
+      P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles,
+      P.EmbedLinks, P.SendMessagesInThreads, P.AddReactions,
+    ];
+    const permisosOverwrites = [
+      { id: guild.roles.everyone.id, deny: [P.ViewChannel] },
+      { id: rol.id, allow: permisosEquipo },
+      { id: interaction.client.user.id, allow: [...permisosEquipo, P.ManageThreads, P.PinMessages] },
+    ];
+    // Admin + roles extra que deben ver todas las series (ROLES_EXTRA_SERIES en el .env, separados por comas)
+    const rolesConAcceso = [process.env.ROL_ADMIN_ID, ...(process.env.ROLES_EXTRA_SERIES ?? '').split(',')]
+      .map((id) => id?.trim())
+      .filter((id) => id && guild.roles.cache.has(id));
+    for (const id of new Set(rolesConAcceso)) permisosOverwrites.push({ id, allow: permisosEquipo });
+
     const canal = await guild.channels.create({
       name: nombre,
       type: ChannelType.GuildText,
       parent: categoria.id,
+      nsfw: true,
       topic: `${tipo} · ${clasificacion}`,
+      permissionOverwrites: permisosOverwrites,
       reason: `Serie creada por ${interaction.user.tag}`,
     });
     creados.push(canal);
