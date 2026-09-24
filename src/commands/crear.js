@@ -1,10 +1,12 @@
 import {
   SlashCommandBuilder, PermissionFlagsBits, ChannelType, ModalBuilder, TextInputBuilder,
-  TextInputStyle, ActionRowBuilder, EmbedBuilder, AttachmentBuilder,
-  ThreadAutoArchiveDuration, MessageFlags,
+  TextInputStyle, ActionRowBuilder, EmbedBuilder, ThreadAutoArchiveDuration, MessageFlags,
 } from 'discord.js';
+import { randomUUID } from 'node:crypto';
+import { db } from '../db.js';
 
 const TIPOS = ['Manhwa', 'Manga', 'Manhua', 'Doujinshi', 'Novela'];
+const BUCKET = 'imagenes';
 
 export const data = new SlashCommandBuilder()
   .setName('crear')
@@ -16,7 +18,7 @@ export const data = new SlashCommandBuilder()
   .addChannelOption((o) => o.setName('categoria').setDescription('Categoría donde irá el canal de la serie')
     .setRequired(true).addChannelTypes(ChannelType.GuildCategory))
   .addAttachmentOption((o) => o.setName('portada').setDescription('Imagen de portada').setRequired(true))
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels); // solo staff con permiso de gestionar canales
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels);
 
 export async function execute(interaction) {
   const tipo = interaction.options.getString('tipo', true);
@@ -29,22 +31,20 @@ export async function execute(interaction) {
   if (!portada.contentType?.startsWith('image/')) {
     return interaction.reply({ content: '❌ La portada debe ser una imagen (png, jpg o webp).', flags: MessageFlags.Ephemeral });
   }
-  const canalesEnCategoria = guild.channels.cache.filter((c) => c.parentId === categoria.id).size;
-  if (canalesEnCategoria >= 50) {
+  if (guild.channels.cache.filter((c) => c.parentId === categoria.id).size >= 50) {
     return interaction.reply({ content: `❌ La categoría **${categoria.name}** ya tiene 50 canales (máximo de Discord). Elige otra.`, flags: MessageFlags.Ephemeral });
   }
 
   // --- Formulario: nombre y sinopsis ---
   const modalId = `crear-${interaction.id}`;
-  const modal = new ModalBuilder().setCustomId(modalId).setTitle('Nueva serie').addComponents(
+  await interaction.showModal(new ModalBuilder().setCustomId(modalId).setTitle('Nueva serie').addComponents(
     new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('nombre').setLabel('Nombre de la serie')
         .setStyle(TextInputStyle.Short).setMaxLength(90).setRequired(true)),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('sinopsis').setLabel('Sinopsis')
         .setStyle(TextInputStyle.Paragraph).setMaxLength(3500).setRequired(true)),
-  );
-  await interaction.showModal(modal);
+  ));
 
   let form;
   try {
@@ -58,23 +58,39 @@ export async function execute(interaction) {
   await form.deferReply({ flags: MessageFlags.Ephemeral });
 
   // --- Validaciones con los datos del formulario ---
-  if (guild.roles.cache.some((r) => r.name.toLowerCase() === nombre.toLowerCase())) {
-    return form.editReply(`❌ Ya existe un rol llamado **${nombre}**. ¿La serie ya fue creada?`);
+  const nombreSeguro = nombre.replace(/[%_\\]/g, '\\$&');
+  const { data: existente, error: errBusqueda } = await db
+    .from('series').select('id').ilike('nombre', nombreSeguro).maybeSingle();
+  if (errBusqueda) throw errBusqueda;
+  if (existente || guild.roles.cache.some((r) => r.name.toLowerCase() === nombre.toLowerCase())) {
+    return form.editReply(`❌ Ya existe una serie o un rol llamado **${nombre}**.`);
   }
+
   const canalProyectos = await guild.channels.fetch(process.env.CANAL_PROYECTOS_ID).catch(() => null);
   if (!canalProyectos) {
     return form.editReply('❌ No encuentro el canal de anuncios de proyectos. Revisa CANAL_PROYECTOS_ID en el .env.');
   }
 
-  // Descargamos la portada y la volvemos a subir: los links de Discord caducan
-  const res = await fetch(portada.url);
-  if (!res.ok) return form.editReply('❌ No pude descargar la portada. Intenta de nuevo.');
-  const buffer = Buffer.from(await res.arrayBuffer());
+  // --- Proceso de creación (si algo falla, se deshace todo) ---
+  const serieId = randomUUID();
   const ext = (portada.name.split('.').pop() || 'png').toLowerCase();
-  const archivo = `portada.${ext}`;
+  const rutaPortada = `portadas/${serieId}.${ext}`;
+  let portadaSubida = false;
+  const creados = [];
 
-  const creados = []; // para deshacer si algo falla a mitad de camino
   try {
+    // 1. Portada → Supabase Storage (los links de Discord caducan)
+    const res = await fetch(portada.url);
+    if (!res.ok) throw new Error(`No se pudo descargar la portada (${res.status})`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+
+    const { error: errSubida } = await db.storage.from(BUCKET)
+      .upload(rutaPortada, buffer, { contentType: portada.contentType, upsert: true });
+    if (errSubida) throw errSubida;
+    portadaSubida = true;
+    const portadaUrl = db.storage.from(BUCKET).getPublicUrl(rutaPortada).data.publicUrl;
+
+    // 2. Rol y canal
     const rol = await guild.roles.create({ name: nombre, reason: `Serie creada por ${interaction.user.tag}` });
     creados.push(rol);
 
@@ -87,15 +103,7 @@ export async function execute(interaction) {
     });
     creados.push(canal);
 
-    // Ficha de la serie dentro de su propio canal
-    const ficha = await canal.send({
-      embeds: [new EmbedBuilder().setColor(0x9b5cff).setTitle(nombre).setDescription(sinopsis)
-        .addFields({ name: 'Tipo', value: tipo, inline: true }, { name: 'Clasificación', value: clasificacion, inline: true })
-        .setImage(`attachment://${archivo}`)],
-      files: [new AttachmentBuilder(buffer, { name: archivo })],
-    });
-    await ficha.pin().catch(() => {});
-
+    // 3. Hilo de anuncios
     const hilo = await canal.threads.create({
       name: 'Anuncios',
       autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
@@ -103,30 +111,51 @@ export async function execute(interaction) {
     });
     await hilo.send('📌 Sube aquí las imágenes de anuncio con el número de capítulo en el mensaje. Ejemplo: `368` o `361-365`.');
 
-    // Anuncio de nuevo proyecto
-    const anuncio = new EmbedBuilder()
-      .setColor(0x9b5cff)
-      .setTitle('📢 ¡NUEVO PROYECTO PARA EL SCAN!')
-      .setDescription(`## ${nombre}\n\n${sinopsis}`)
-      .addFields({ name: 'Tipo', value: tipo, inline: true }, { name: 'Clasificación', value: clasificacion, inline: true })
-      .setImage(`attachment://${archivo}`)
-      .setTimestamp();
+    // 4. Guardar en la base
+    const { error: errInsert } = await db.from('series').insert({
+      id: serieId,
+      nombre,
+      sinopsis,
+      tipo,
+      clasificacion,
+      portada_url: portadaUrl,
+      rol_id: rol.id,
+      canal_id: canal.id,
+      hilo_id: hilo.id,
+      categoria_id: categoria.id,
+      creado_por: interaction.user.id,
+    });
+    if (errInsert) throw errInsert;
 
+    // 5. Ficha fijada en el canal de la serie
+    const ficha = await canal.send({
+      embeds: [new EmbedBuilder().setColor(0x9b5cff).setTitle(nombre).setDescription(sinopsis)
+        .addFields({ name: 'Tipo', value: tipo, inline: true }, { name: 'Clasificación', value: clasificacion, inline: true })
+        .setImage(portadaUrl)],
+    });
+    await ficha.pin().catch(() => {});
+
+    // 6. Anuncio de nuevo proyecto
     await canalProyectos.send({
       content: `<@&${process.env.ROL_MIEMBROS_ID}>`,
-      embeds: [anuncio],
-      files: [new AttachmentBuilder(buffer, { name: archivo })],
+      embeds: [new EmbedBuilder()
+        .setColor(0x9b5cff)
+        .setTitle('📢 ¡NUEVO PROYECTO PARA EL SCAN!')
+        .setDescription(`## ${nombre}\n\n${sinopsis}`)
+        .addFields({ name: 'Tipo', value: tipo, inline: true }, { name: 'Clasificación', value: clasificacion, inline: true })
+        .setImage(portadaUrl)
+        .setTimestamp()],
       allowedMentions: { roles: [process.env.ROL_MIEMBROS_ID] },
     });
 
-    // TODO: aquí guardaremos la serie en Supabase
-
     await form.editReply(
-      `✅ Serie **${nombre}** creada\n• Rol: ${rol}\n• Canal: ${canal}\n• Hilo: ${hilo}\n• Anuncio publicado en ${canalProyectos}`,
+      `✅ Serie **${nombre}** creada y guardada\n• Rol: ${rol}\n• Canal: ${canal}\n• Hilo: ${hilo}\n• Anuncio publicado en ${canalProyectos}`,
     );
   } catch (err) {
     console.error('❌ Error en /crear, deshaciendo cambios:', err);
     for (const x of creados.reverse()) await x.delete('Falló /crear, se deshace').catch(() => {});
-    await form.editReply('❌ Algo falló al crear la serie y se deshicieron los cambios. Revisa la consola del bot.');
+    await db.from('series').delete().eq('id', serieId);
+    if (portadaSubida) await db.storage.from(BUCKET).remove([rutaPortada]);
+    await form.editReply(`❌ Algo falló al crear la serie y se deshicieron los cambios.\n\`${err.message ?? err}\``);
   }
 }
