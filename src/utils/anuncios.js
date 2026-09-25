@@ -38,6 +38,19 @@ export async function enviarAnuncio({ webhookUrl, serie, textoCaps, plural, acce
     new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Leer en Nexus').setEmoji('📖').setURL(serie.link),
   );
 
+  // La imagen se adjunta al mensaje (Discord guarda su propia copia).
+  // Así el anuncio no se rompe aunque luego borremos la imagen del hilo o de Supabase.
+  let archivo = null;
+  if (imagenUrl) {
+    const res = await fetch(imagenUrl);
+    if (!res.ok) throw new Error(`No pude descargar la imagen del anuncio (${res.status})`);
+    const tipo = res.headers.get('content-type') ?? 'image/png';
+    const ext = (tipo.split('/')[1] ?? 'png').replace('jpeg', 'jpg').split(';')[0];
+    archivo = { attachment: Buffer.from(await res.arrayBuffer()), name: `anuncio.${ext}` };
+  }
+  const refImagen = archivo ? `attachment://${archivo.name}` : null;
+  const files = archivo ? [archivo] : [];
+
   const webhook = new WebhookClient({ url: webhookUrl });
   try {
     // Formato moderno (igual a tus bots): texto, imagen y botón, sin barra de embed
@@ -45,9 +58,10 @@ export async function enviarAnuncio({ webhookUrl, serie, textoCaps, plural, acce
       flags: MessageFlags.IsComponentsV2,
       withComponents: true,
       allowedMentions,
+      files,
       components: [
         new TextDisplayBuilder().setContent(`# [${titulo}](${serie.link})\n${cuerpo}\n\n${menciones}`),
-        ...(imagenUrl ? [new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(imagenUrl))] : []),
+        ...(refImagen ? [new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(refImagen))] : []),
         boton,
       ],
     });
@@ -58,7 +72,8 @@ export async function enviarAnuncio({ webhookUrl, serie, textoCaps, plural, acce
       content: menciones,
       allowedMentions,
       withComponents: true,
-      embeds: [new EmbedBuilder().setTitle(titulo).setURL(serie.link).setDescription(cuerpo).setImage(imagenUrl ?? null)],
+      files,
+      embeds: [new EmbedBuilder().setTitle(titulo).setURL(serie.link).setDescription(cuerpo).setImage(refImagen)],
       components: [boton],
     });
   } finally {

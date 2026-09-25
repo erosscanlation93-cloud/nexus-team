@@ -93,10 +93,11 @@ export async function execute(interaction) {
   try {
     // 1. Portada → Supabase Storage (solo si se adjuntó; los links de Discord caducan)
     let portadaUrl = null;
+    let buffer = null;
     if (portada) {
       const res = await fetch(portada.url);
       if (!res.ok) throw new Error(`No se pudo descargar la portada (${res.status})`);
-      const buffer = Buffer.from(await res.arrayBuffer());
+      buffer = Buffer.from(await res.arrayBuffer());
 
       const { error: errSubida } = await db.storage.from(BUCKET)
         .upload(rutaPortada, buffer, { contentType: portada.contentType, upsert: true });
@@ -175,11 +176,12 @@ export async function execute(interaction) {
       .setDescription(sinopsis ? `## ${nombre}\n\n${sinopsis}` : `## ${nombre}`)
       .addFields({ name: 'Tipo', value: tipo, inline: true }, { name: 'Clasificación', value: clasificacion, inline: true })
       .setTimestamp();
-    if (portadaUrl) embedAnuncio.setImage(portadaUrl);
+    if (buffer) embedAnuncio.setImage(`attachment://portada.${ext}`);
 
     await canalProyectos.send({
       content: `<@&${process.env.ROL_MIEMBROS_ID}>`,
       embeds: [embedAnuncio],
+      files: buffer ? [{ attachment: buffer, name: `portada.${ext}` }] : [],
       allowedMentions: { roles: [process.env.ROL_MIEMBROS_ID] },
     });
 
