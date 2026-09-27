@@ -10,6 +10,7 @@ import { parsearCapitulos, formatearCapitulos } from '../utils/capitulos.js';
 const ROLES = [
   { value: 'TL', label: 'TL', description: 'Traducción' },
   { value: 'CL', label: 'CL', description: 'Limpieza' },
+  { value: 'RD', label: 'RD', description: 'Redibujo' },
   { value: 'TP', label: 'TP', description: 'Typeo / edición final' },
 ];
 
@@ -64,7 +65,7 @@ export async function execute(interaction) {
     return; // cerró el formulario o pasó el tiempo
   }
   const roles = form.fields.getStringSelectValues('roles');
-  await form.deferReply();
+  await form.deferReply({ flags: MessageFlags.Ephemeral }); // 'pensando...' solo visible para quien registra
 
   // --- Guardar ---
   const usuario = interaction.user;
@@ -89,7 +90,7 @@ export async function execute(interaction) {
 
   const { data: nuevos, error: errInsert } = await db.from('registros')
     .upsert(filas, { onConflict: 'serie_id,capitulo,rol,discord_id', ignoreDuplicates: true })
-    .select('capitulo');
+    .select('capitulo, rol');
   if (errInsert) throw errInsert;
 
   // --- Respuesta ---
@@ -113,5 +114,16 @@ export async function execute(interaction) {
     embed.addFields({ name: '⚠️ Ya registrado por otra persona', value: detalle + (previos.length > 10 ? '\n…' : '') });
   }
 
-  await form.editReply({ embeds: [embed] });
+  // Si entró algún TP nuevo, se menciona al rol de subida en el mismo mensaje.
+  // Se envía como mensaje nuevo (followUp) porque las menciones en mensajes editados no notifican.
+  const hayTpNuevo = (nuevos ?? []).some((r) => r.rol === 'TP');
+  const rolSubida = process.env.ROL_SUBIDA_ID;
+  const avisar = hayTpNuevo && rolSubida;
+
+  await form.followUp({
+    content: avisar ? `<@&${rolSubida}> subirlo y publicarlo` : undefined,
+    embeds: [embed],
+    allowedMentions: { roles: avisar ? [rolSubida] : [] },
+  });
+  await form.deleteReply().catch(() => {});
 }
