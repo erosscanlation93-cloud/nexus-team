@@ -10,7 +10,6 @@ import { parsearCapitulos, formatearCapitulos } from '../utils/capitulos.js';
 const ROLES = [
   { value: 'TL', label: 'TL', description: 'Traducción' },
   { value: 'CL', label: 'CL', description: 'Limpieza' },
-  { value: 'RD', label: 'RD', description: 'Redibujo' },
   { value: 'TP', label: 'TP', description: 'Typeo / edición final' },
 ];
 
@@ -120,6 +119,9 @@ export async function execute(interaction) {
   const rolSubida = process.env.ROL_SUBIDA_ID;
   const avisar = hayTpNuevo && rolSubida;
 
+  // Ojo: el primer followUp tras un defer reemplaza al 'pensando...' (y hereda que sea privado).
+  // Por eso primero cerramos el 'pensando...' y recién después publicamos el mensaje público.
+  await form.editReply({ content: '✅ Registrado.' });
   await form.followUp({
     content: avisar ? `<@&${rolSubida}> subirlo y publicarlo` : undefined,
     embeds: [embed],
