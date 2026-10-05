@@ -4,6 +4,7 @@ import { loadCommands } from './utils/loadCommands.js';
 import { db } from './db.js';
 import { registrarHiloAnuncios } from './events/hiloAnuncios.js';
 import { tienePermiso } from './utils/permisos.js';
+import { iniciarReporteSemanal } from './jobs/reporteSemanal.js';
 
 const client = new Client({
   intents: [
@@ -32,6 +33,8 @@ client.once(Events.ClientReady, async (c) => {
   console.log(error
     ? `⚠️ Supabase (${status}): ${error.message || error.code || JSON.stringify(error)}`
     : `🗄️ Supabase conectado · ${count} serie(s) en la base`);
+
+  iniciarReporteSemanal(c);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
